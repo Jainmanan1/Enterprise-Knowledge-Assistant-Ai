@@ -1,0 +1,123 @@
+# =========================
+# Environment variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python packaging
+*.egg-info/
+dist/
+build/
+
+# =========================
+# FastAPI / Python tools
+# =========================
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# =========================
+# Databases
+# =========================
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# Chroma / Vector databases
+# =========================
+chroma_db/
+**/chroma_db/
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+# =========================
+# Secrets / credentials
+# =========================
+*.pem
+*.key
+secrets/
+credentials/
+
+# =========================
+# Node / React
+# =========================
+node_modules/
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+frontend/build/
+
+# Vite
+frontend/.vite/
+
+# =========================
+# IDE / Editors
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# =========================
+# Test / coverage
+# =========================
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# Model / ML files
+# =========================
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# =========================
+# Local uploads
+# =========================
+uploads/
+backend/uploads/
+mcp-server/uploads/
