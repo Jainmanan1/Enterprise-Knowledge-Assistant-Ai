@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from app.db.models import UserRole
 
 
@@ -15,11 +15,10 @@ class UserOut(BaseModel):
     id: str
     email: EmailStr
     role: UserRole
+    model_config = ConfigDict(from_attributes=True)
+    
 
-    class Config:
-        from_attributes = True
 
-
-class token(BaseModel):
+class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
