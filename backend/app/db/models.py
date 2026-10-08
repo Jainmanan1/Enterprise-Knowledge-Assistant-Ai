@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
-
+from sqlalchemy.orm import Mapped, mapped_column
 from app.db.session import Base
 
 class UserRole(str,enum.Enum):
@@ -13,9 +13,23 @@ class UserRole(str,enum.Enum):
 class User(Base):
     __tablename__ = "users" 
 
-    id = Column(String, primary_key=True, default = lambda: str(uuid.uuid4()))   
-    email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    id:Mapped[str] = mapped_column (
+        String,
+        primary_key=True,
+        default = lambda: str(uuid.uuid4())
+        )   
+    
+    email: Mapped[str] = mapped_column(
+        String,
+        unique=True,
+        nullable=False,
+        index=True
+    )
+
+    hashed_password: Mapped[str] = mapped_column(
+        String,
+        nullable=False
+    )
     role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.EMPLOYEE)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     documents = relationship("Document", back_populates="owner")
