@@ -1,11 +1,11 @@
 import os
 from datetime import datetime, timedelta, timezone
- 
+from dotenv import load_dotenv
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-
-secret_key = os.environ.get("JWT_SECRET_KEY")
+load_dotenv()
+secret_key = os.getenv("JWT_SECRET_KEY")
 if secret_key is None:
     raise RuntimeError("JWT_SECRET_KEY environment variable is not set")
 SECRET_KEY: str = secret_key
