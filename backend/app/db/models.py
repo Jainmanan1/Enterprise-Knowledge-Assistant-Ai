@@ -30,16 +30,30 @@ class User(Base):
         String,
         nullable=False
     )
-    role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.EMPLOYEE)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole), nullable=False, default=UserRole.EMPLOYEE)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     documents = relationship("Document", back_populates="owner")
 
 
 class Document(Base):
     __tablename__ = "documents"
 
-    id = Column(String, primary_key=True, default=lambda:str(uuid.uuid4()))   
-    filename = Column(String, nullable=False) 
-    owner_id = Column(String,ForeignKey("users.id"),nullable=False,index=True)
-    uploaded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    id: Mapped[str] = mapped_column(
+        String,
+        primary_key=True,
+        default=lambda: str(uuid.uuid4())
+    )
+
+    filename: Mapped[str] = mapped_column(
+        String,
+        nullable=False
+    )
+
+    owner_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     owner = relationship("User",back_populates = "documents")

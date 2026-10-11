@@ -10,6 +10,6 @@ class DocumentOut(BaseModel):
     uploaded_at:datetime
 
 
-class UploadResult(BaseModel):
+class UploadResult(DocumentOut):
     chunk_count:int    
 
