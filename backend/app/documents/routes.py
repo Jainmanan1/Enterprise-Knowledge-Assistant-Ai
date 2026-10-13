@@ -7,7 +7,7 @@ from app.db.models import User,Document,UserRole
 from app.documents.indexer import index_chunks, remove_document
 from app.documents.ingest import ALLOWED_EXTENSIONS, MAX_UPLOAD_BYTES, chunk_text, extract_text
 from app.documents.model import DocumentOut, UploadResult
-
+import uuid
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 @router.post("/upload",response_model=UploadResult,status_code=status.HTTP_201_CREATED)
@@ -36,15 +36,20 @@ def upload_document(
     db.flush()  # Ensure doc.id is populated
 
     try:
+        version_id = str(uuid.uuid4())
         count = index_chunks(
             owner_id = current_user.id,
             document_id = str(doc.id),
             filename = filename,
-            chunks = chunks
+            chunks = chunks,
+            version_id = version_id,
+            actor_id = str(current_user.id),
+            actor_role = current_user.role.value
         )
     except Exception:
         db.rollback()
         raise HTTPException(status_code=502, detail="Indexing failed")
+    doc.active_version_id = version_id
     db.commit()
     db.refresh(doc)
     return UploadResult(
@@ -78,6 +83,6 @@ def delete_document(
     if doc is None or (doc.owner_id != current_user.id and current_user.role != UserRole.ADMIN): 
         raise HTTPException(status_code=404, detail="Document not found")
 
-    remove_document(document_id)
+    remove_document(document_id, str(current_user.id), current_user.role.value)
     db.delete(doc)
     db.commit()

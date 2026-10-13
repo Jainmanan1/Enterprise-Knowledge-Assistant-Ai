@@ -1,7 +1,7 @@
 import enum
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import  String, DateTime, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.session import Base
@@ -56,4 +56,7 @@ class Document(Base):
         index=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    active_version_id: Mapped[str] = mapped_column(String, nullable=True)
+
     owner = relationship("User",back_populates = "documents")

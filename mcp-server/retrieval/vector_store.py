@@ -24,8 +24,7 @@ def warm_up()-> None:
     logger.info("Embedding model ready in %.2fs", time.perf_counter() - t0)
 
 
-def index_chunks(owner_id:str,document_id:str,filename:str,chunks:list[str]) ->int:
-    version_id = str(uuid.uuid4())
+def index_chunks(owner_id:str,document_id:str,filename:str,chunks:list[str],version_id:str) ->int:
     
     docs =[
         Document(
@@ -143,5 +142,19 @@ def delete_document(document_id: str) -> int:
         _store.delete(ids=ids)
     return len(ids)
     
+def get_document_owner(document_id:str) ->str|None:
+    records = _store.get(where={"document_id":document_id},include=["metadatas"])
+    owners = {
+        metadata.get("owner_id")
+        for metadata in records["metadatas"]
+        if metadata and metadata.get("owner_id")
+    }
+
+    if len(owners) > 1:
+        raise RuntimeError(
+            "Document has inconsistent owner metadata"
+        )
+
+    return next(iter(owners), None)
 
     
