@@ -13,7 +13,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 @router.post("/upload",response_model=UploadResult,status_code=status.HTTP_201_CREATED)
 
 def upload_document(
-    file:UploadFile = File(...),  #why this ?
+    file:UploadFile = File(...), 
     current_user:User = Depends(get_current_user),
     db:Session = Depends(get_db)
 

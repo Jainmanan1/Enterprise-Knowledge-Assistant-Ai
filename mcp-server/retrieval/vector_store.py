@@ -1,11 +1,11 @@
 import os
 import logging
 import time
-import uuid
-
+from typing import cast
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_ollama import OllamaEmbeddings
+from chromadb.api.types import Where
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,31 @@ def warm_up()-> None:
     t0 = time.perf_counter()
     _embeddings.embed_query("warm_up")
     logger.info("Embedding model ready in %.2fs", time.perf_counter() - t0)
+
+
+def _matching_ids(*clauses: Where) -> list[str]:
+    where: Where = (
+        clauses[0]
+        if len(clauses) == 1
+        else cast(Where, {"$and": list(clauses)})
+    )
+    return _store.get(where=where)["ids"]
+
+
+def get_document_owner(document_id:str) ->str|None:
+    records = _store.get(where={"document_id":document_id},include=["metadatas"])
+    owners = {
+        metadata.get("owner_id")
+        for metadata in records["metadatas"]
+        if metadata and metadata.get("owner_id")
+    }
+
+    if len(owners) > 1:
+        raise RuntimeError(
+            "Document has inconsistent owner metadata"
+        )
+
+    return next(iter(owners), None)
 
 
 def index_chunks(owner_id:str,document_id:str,filename:str,chunks:list[str],version_id:str) ->int:
@@ -142,19 +167,6 @@ def delete_document(document_id: str) -> int:
         _store.delete(ids=ids)
     return len(ids)
     
-def get_document_owner(document_id:str) ->str|None:
-    records = _store.get(where={"document_id":document_id},include=["metadatas"])
-    owners = {
-        metadata.get("owner_id")
-        for metadata in records["metadatas"]
-        if metadata and metadata.get("owner_id")
-    }
 
-    if len(owners) > 1:
-        raise RuntimeError(
-            "Document has inconsistent owner metadata"
-        )
-
-    return next(iter(owners), None)
 
     
