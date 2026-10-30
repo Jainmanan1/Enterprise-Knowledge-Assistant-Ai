@@ -6,35 +6,73 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_ollama import OllamaEmbeddings
 from chromadb.api.types import Where
-
 logger = logging.getLogger(__name__)
-
 CHROMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "chroma_db")
-_embeddings = OllamaEmbeddings(model="nomic-embed-text")
-_store = Chroma(
-    collection_name="enterprise_docs",
-    embedding_function = _embeddings,
-    persist_directory=CHROMA_DIR
+_embeddings : OllamaEmbeddings|None = None
+_store: Chroma|None = None
 
-)
+def _get_embeddings() -> OllamaEmbeddings:
+    """Create the embedding client only when it is needed."""
+    global _embeddings
+
+    if _embeddings is None:
+        _embeddings = OllamaEmbeddings(model="nomic-embed-text")
+
+    return _embeddings
+
+def _get_store() -> Chroma:
+    """Create the persistent Chroma store only when an operation needs it."""
+    global _store
+
+    if _store is None:
+        _store = Chroma(
+            collection_name="enterprise_docs",
+            embedding_function=_get_embeddings(),
+            persist_directory=CHROMA_DIR,
+        )
+
+    return _store
+
+def _delete_with_retry(
+        ids: list[str],max_retries:int=3
+)-> None:
+    if not ids:
+        return
+    store = _get_store()
+    for attempt in range(1, max_retries + 1):
+        try:
+            store.delete(ids=ids)
+            logger.info("Deleted %d chunks from Chorma", len(ids))
+            return
+        except Exception:
+            logger.exception(
+                "Attempt %d/%d to delete %d chunks from Chroma failed",
+                attempt,
+                max_retries,
+                len(ids)
+            )
+            if attempt == max_retries:
+                raise
+            time.sleep(2 ** (attempt -1))  # Exponential backoff: 1s, 2s, 4s, etc.
 
 def warm_up()-> None:
     t0 = time.perf_counter()
-    _embeddings.embed_query("warm_up")
+    _get_embeddings().embed_query("warm_up")
     logger.info("Embedding model ready in %.2fs", time.perf_counter() - t0)
 
-
 def _matching_ids(*clauses: Where) -> list[str]:
+    if not clauses:
+        raise ValueError("At least one filter clause is required")
     where: Where = (
         clauses[0]
         if len(clauses) == 1
         else cast(Where, {"$and": list(clauses)})
     )
-    return _store.get(where=where)["ids"]
-
+    return _get_store().get(where=where)["ids"]
 
 def get_document_owner(document_id:str) ->str|None:
-    records = _store.get(where={"document_id":document_id},include=["metadatas"])
+    store = _get_store()
+    records = store.get(where={"document_id":document_id},include=["metadatas"])
     owners = {
         metadata.get("owner_id")
         for metadata in records["metadatas"]
@@ -48,9 +86,8 @@ def get_document_owner(document_id:str) ->str|None:
 
     return next(iter(owners), None)
 
-
 def index_chunks(owner_id:str,document_id:str,filename:str,chunks:list[str],version_id:str) ->int:
-    
+
     docs =[
         Document(
             page_content = text,
@@ -66,27 +103,28 @@ def index_chunks(owner_id:str,document_id:str,filename:str,chunks:list[str],vers
         )
         for i,text in enumerate(chunks)
         if text.strip()
-        
+
     ]
     if not docs:
         raise ValueError("Cannot index a document with no text chunks")
-    
-    # Capture the currently indexed chunks before starting.
-    old_records  = _store.get(where={"document_id": document_id})
-    old_ids = old_records["ids"]
-    
+
+    existing_owner  = get_document_owner(document_id)
+    if existing_owner is not None and existing_owner != owner_id:
+        raise PermissionError("Document belongs to another owner")
+
     # Give each version unique chunk IDs.
     ids = [
         f"{document_id}:{version_id}:{i}"
         for i in range(len(docs))
     ]
     batch_size = 16
+    store = _get_store()
 
     try:
         for start in range(0, len(docs), batch_size):
             end = min(start + batch_size, len(docs))
 
-            _store.add_documents(
+            store.add_documents(
                 documents = docs[start:end],
                 ids=ids[start:end],
             )
@@ -105,45 +143,52 @@ def index_chunks(owner_id:str,document_id:str,filename:str,chunks:list[str],vers
         )
 
         try:
-            new_records = _store.get(where = {"indexing_version": version_id})
-            new_ids = new_records["ids"]
-            if new_ids:
-                _store.delete(ids=new_ids)
-        except Exception:
-            logger.exception(
-                "Failed to clean up partial version%s. "
-                "Manual or scheduled reconciliation may be needed.",
-                version_id,
+            partial = _matching_ids(
+                {"owner_id": owner_id}, {"document_id": document_id}, {"indexing_version": version_id}
             )
-
-        raise    
-
-    # Phase 2: New indexing succeeded. Remove the old version.
-    if old_ids:
-        try:
-            _store.delete(ids=old_ids)
+            if partial:
+                _get_store().delete(ids=partial)
         except Exception:
-            logger.exception(
-                "New version indexed, but old chunks could not "
-                "be fully removed for document %s",
-                document_id,
-            )
-        raise RuntimeError(
-            f"New indexing succeeded, but stale chunks "
-            f"could not be removed for document {document_id}"
-        )   
+            logger.exception("Could not clean partial version %s; reconciliation needed", version_id)
+        raise
 
-    return len(docs)  
-
-
+    return len(docs)
 
 def search (
-        owner_id:str,query:str,k:int
+        owner_id:str,query:str,k:int,active_versions:dict[str,str]
 ) -> list[dict]:
-    results = _store.similarity_search_with_score(
+    if not active_versions:
+        return []
+
+    version_filters =[
+        {
+        "$and":[
+            {"document_id": document_id},
+            {"indexing_version": version_id}
+        ]
+    }
+    for document_id,version_id in active_versions.items()
+
+    ]
+    if len(version_filters) == 1:
+        version_filters = version_filters[0]
+    else:
+        version_filters = {"$or": version_filters}
+
+    # Enforce both ownership and active-version filtering.
+    where: Where = cast(
+        Where,
+        {
+            "$and": [
+                {"owner_id": owner_id},
+                 version_filters
+            ]
+        },
+    )
+    results = _get_store().similarity_search_with_score(
         query,
         k=k,
-        filter = {"owner_id": owner_id}
+        filter=cast(dict[str, str], where),
 
     )
     return [
@@ -153,20 +198,68 @@ def search (
             "document_id": doc.metadata.get("document_id"),
             "owner_id": doc.metadata.get("owner_id"),
             "chunk_index": doc.metadata.get("chunk_index"),
+            "indexing_version": doc.metadata.get("indexing_version"),
             "distance": float(score),  # lower = closer
         }
         for doc, score in results
     ]
 
+def get_owner_chunks(owner_id: str,active_versions:dict[str,str]) -> list[dict]:
+    """Return only the owner's chunks from active document versions."""
 
+    if not active_versions:
+        return []
+    version_filters = [
+        {
+            "$and": [
+                {"document_id": document_id},
+                {"indexing_version": version_id},
+            ]
+        }
+        for document_id, version_id in active_versions.items()
+    ]
+    if len(version_filters) == 1:
+        version_filters = version_filters[0]
+    else:
+        version_filters = {"$or": version_filters}
+
+
+    where: Where = cast(
+        Where,
+        {
+            "$and": [
+                {"owner_id": owner_id},
+             version_filters
+            ]
+        },
+    )
+    data = _get_store().get(where=cast(dict,where), include=["documents", "metadatas"])
+    results = []
+
+    for text, meta in zip(data["documents"], data["metadatas"]):
+        if text is None or meta is None:
+            continue
+
+        results.append(
+            {
+                "text": text,
+                "filename": meta.get("filename"),
+                "document_id": meta.get("document_id"),
+                "owner_id": meta.get("owner_id"),
+                "chunk_index": meta.get("chunk_index"),
+                "indexing_version": meta.get("indexing_version"),
+            }
+        )
+
+    return results
 
 def delete_document(document_id: str) -> int:
-    existing = _store.get(where={"document_id": document_id})
+    store = _get_store()
+    existing = store.get(where={"document_id": document_id})
     ids = existing["ids"]
     if ids:
-        _store.delete(ids=ids)
+        _delete_with_retry(ids=ids)
     return len(ids)
-    
 
 
-    
+

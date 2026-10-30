@@ -55,8 +55,14 @@ class Document(Base):
         nullable=False,
         index=True
     )
+    deletion_status: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default="active",
+        server_default="active"
+    )
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    active_version_id: Mapped[str] = mapped_column(String, nullable=True)
+    active_version_id: Mapped[str| None] = mapped_column(String, nullable=True)
 
     owner = relationship("User",back_populates = "documents")

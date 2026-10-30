@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 from jose import jwt
 from app.chat.mcp_client import call_tool_sync
 from dotenv import load_dotenv
+from sqlalchemy.orm import Session
+from app.db.models import Document
 load_dotenv()
 
 def create_mcp_token(actor_id: str, actor_role: str) -> str:
@@ -22,6 +24,25 @@ def create_mcp_token(actor_id: str, actor_role: str) -> str:
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
+def get_active_versions(db: Session, owner_id: str) -> dict[str, str]:
+    documents = (
+        db.query(Document)
+        .filter(
+            Document.owner_id == owner_id,
+            Document.deletion_status == "active",
+            Document.active_version_id.isnot(None),
+        )
+        .all()
+    )
+    return {
+        document.id: document.active_version_id
+        for document in documents
+        if document.active_version_id is not None
+    }
+
+
+
+
 
 def index_chunks(*, owner_id: str, document_id: str, filename: str, chunks: list[str], version_id: str,actor_id: str, actor_role: str) -> int:
     auth_token = create_mcp_token(actor_id, actor_role)
@@ -34,6 +55,50 @@ def index_chunks(*, owner_id: str, document_id: str, filename: str, chunks: list
 
 
 
-def remove_document(document_id: str,actor_id: str, actor_role: str) -> None:
+
+def remove_document(
+    *,
+    document_id: str,
+    actor_id: str,
+    actor_role: str,
+) -> int:
     auth_token = create_mcp_token(actor_id, actor_role)
-    call_tool_sync("delete_document", {"document_id": document_id, "auth_token": auth_token})
+
+    result = call_tool_sync(
+        "delete_document",
+        {
+            "document_id": document_id,
+            "auth_token": auth_token,
+        },
+    )
+
+    return result["deleted_chunks"]
+
+
+def search_chunks(
+        *,
+        db:Session,
+        owner_id:str,
+        query:str,
+        actor_id:str,
+        actor_role:str,
+        k:int=4,
+) -> list[dict]:
+    #read the active version from the sql
+    active_versions = get_active_versions(db=db,owner_id=owner_id)
+
+    # Create a short-lived MCP authentication token.
+    auth_token = create_mcp_token(actor_id=actor_id, actor_role=actor_role)
+
+    #send the search req to mcp-server
+    result = call_tool_sync(
+        "search_document",
+        {
+            "owner_id": owner_id,
+            "query": query,
+            "active_versions": active_versions,
+            "auth_token": auth_token,
+            "k": k,
+        }
+    )
+    return result
